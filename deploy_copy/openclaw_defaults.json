@@ -8,12 +8,12 @@
   "agents": {
     "defaults": {
       "elevatedDefault": "full",
-      "timeoutSeconds": 300,
+      "timeoutSeconds": 1800,
       "subagents": {
         "maxSpawnDepth": 2,
         "maxChildrenPerAgent": 5,
         "maxConcurrent": 3,
-        "runTimeoutSeconds": 600
+        "runTimeoutSeconds": 1800
       }
     },
     "list": [
@@ -81,6 +81,7 @@
       },
       {
         "id": "doctor",
+        "model": "kimi/kimi-k2.5",
         "workspace": "Agents/doctor",
         "tools": {
           "elevated": {

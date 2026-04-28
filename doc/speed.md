@@ -33,3 +33,63 @@
   6. 如果当前默认 thinking 不是 off/low，聊天场景降一级。
 
   如果只改前 3 项，体感通常会立刻快很多；如果再加第 4 项，长回答会明显顺滑；第 5、6 项主要改善首包时间和高并发下稳定性。
+
+
+
+  🎯 优化设计方案
+
+  阶段 1：前端即时展示 + 去掉 Debounce
+
+  改动点：
+  - frontend/src/pages/Chat.tsx：删除 setStreamingText 的打字机逻辑，改成直接设置文本
+  - 删除 final 的 3s debounce 和 lifecycle end 的 1s debounce → 收到 final 立即调用 getSession
+  - 删除所有 console.log（除了错误日志）
+
+  效果： 同一条消息从"等 10 秒看打字"变成"1-2 秒展示完"
+
+  ---
+  阶段 2：Bridge SSE Delta 格式 + 固定 50ms 节流
+
+  改动点：
+  - openclaw/bridge/routes/events.ts：改 SSE 消息格式
+    - 原：{state: 'delta', message: {content: [完整文本]}}
+    - 新：{state: 'delta', message: {content: [{type: 'text', text: '增量部分', is_delta: true}]}, ...}
+  - 节流从 150ms → 50ms
+
+  前端适配：
+  - frontend/src/pages/Chat.tsx：识别 is_delta 字段，改为 append 而非重设整段文本
+
+  效果： 长回复不再"一整段重新渲染"，payload 逐渐变小
+
+  ---
+  阶段 3：Platform Quota 内存缓存 + TTL
+
+  改动点：
+  - platform/app/llm_proxy/service.py：新增 QuotaCache 类（内存 + TTL）
+  - 改 _check_quota() 首先查缓存，缓存未命中才 sum()，然后缓存 30-60s
+
+  DB 优化（可选但建议）：
+  - 给 usage_records 表加组合索引 (user_id, created_at DESC)
+
+  效果： 首包延迟 ↓ 200-500ms，高并发时稳定性 ↑
+
+  ---
+  阶段 4：验证脚本
+
+  用 Python/Node 写自动化测试脚本，测量：
+  - 消息首字出现时间
+  - 完整回复显示时间
+  - SSE 流的 p99 延迟
+  - Quota 查询耗时
+
+  ---
+  ❓ 这个设计是否对应所有优化点？
+
+  ✅ 前端打字机 → 阶段 1
+  ✅ Debounce → 阶段 1
+  ✅ Console.log → 阶段 1
+  ✅ 真正 Delta + 节流 → 阶段 2
+  ✅ Quota 缓存 → 阶段 3
+  ⚠️  Thinking 配置 → 暂不改（需要确认当前默认值）
+
+  看起来没问题吗？需要调整吗？

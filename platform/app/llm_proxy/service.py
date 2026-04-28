@@ -30,6 +30,39 @@ logger = logging.getLogger("platform.llm_proxy")
 
 
 # ---------------------------------------------------------------------------
+# Quota caching
+# ---------------------------------------------------------------------------
+
+class QuotaCache:
+    """In-memory cache for daily quota sums with TTL."""
+
+    def __init__(self, ttl_seconds: int = 60):
+        self.ttl_seconds = ttl_seconds
+        self._cache: dict[str, tuple[int, float]] = {}  # {user_id: (tokens, timestamp)}
+
+    def get(self, user_id: str) -> int | None:
+        """Get cached quota, or None if expired."""
+        if user_id not in self._cache:
+            return None
+        tokens, cached_at = self._cache[user_id]
+        if time.time() - cached_at > self.ttl_seconds:
+            del self._cache[user_id]
+            return None
+        return tokens
+
+    def set(self, user_id: str, tokens: int):
+        """Cache quota with current timestamp."""
+        self._cache[user_id] = (tokens, time.time())
+
+    def invalidate(self, user_id: str):
+        """Force cache miss."""
+        self._cache.pop(user_id, None)
+
+
+_quota_cache = QuotaCache(ttl_seconds=60)
+
+
+# ---------------------------------------------------------------------------
 # Model → provider mapping
 # ---------------------------------------------------------------------------
 
@@ -192,14 +225,23 @@ _TIER_LIMITS = {
 
 
 async def _check_quota(db: AsyncSession, user: User) -> None:
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    result = await db.execute(
-        select(func.coalesce(func.sum(UsageRecord.total_tokens), 0)).where(
-            UsageRecord.user_id == user.id,
-            UsageRecord.created_at >= today_start,
+    # 1. Check cache first
+    cached_used = _quota_cache.get(user.id)
+    if cached_used is not None:
+        used_today = cached_used
+    else:
+        # 2. Cache miss: query database
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        result = await db.execute(
+            select(func.coalesce(func.sum(UsageRecord.total_tokens), 0)).where(
+                UsageRecord.user_id == user.id,
+                UsageRecord.created_at >= today_start,
+            )
         )
-    )
-    used_today: int = result.scalar_one()
+        used_today: int = result.scalar_one()
+        _quota_cache.set(user.id, used_today)
+
+    # 3. Check limit
     limit = _TIER_LIMITS.get(user.quota_tier, _TIER_LIMITS["free"])
 
     if used_today >= limit:

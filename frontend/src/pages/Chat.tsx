@@ -98,42 +98,11 @@ export default function Chat() {
   const [agentRunning, setAgentRunning] = useState(false)
   const [error, setError] = useState('')
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
-  // Typewriter streaming: targetText is the full text from SSE, displayedText is what's shown
+  // Streaming text: display immediately without typewriter animation
   const [displayedText, setDisplayedText] = useState('')
-  const targetTextRef = useRef('')
-  const typewriterTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const setStreamingText = useCallback((text: string) => {
-    if (!text) {
-      // Clear everything
-      targetTextRef.current = ''
-      setDisplayedText('')
-      if (typewriterTimerRef.current) {
-        clearInterval(typewriterTimerRef.current)
-        typewriterTimerRef.current = null
-      }
-      return
-    }
-    targetTextRef.current = text
-    // Start typewriter if not already running
-    if (!typewriterTimerRef.current) {
-      typewriterTimerRef.current = setInterval(() => {
-        setDisplayedText(prev => {
-          const target = targetTextRef.current
-          if (prev.length >= target.length) {
-            // Caught up — stop timer
-            if (typewriterTimerRef.current) {
-              clearInterval(typewriterTimerRef.current)
-              typewriterTimerRef.current = null
-            }
-            return target
-          }
-          // Reveal 2-4 characters per tick for natural speed
-          const charsToAdd = Math.min(3, target.length - prev.length)
-          return target.substring(0, prev.length + charsToAdd)
-        })
-      }, 20) // ~50fps, 3 chars per tick ≈ 150 chars/sec
-    }
+    setDisplayedText(text)
   }, [])
 
   // Files
@@ -458,17 +427,24 @@ export default function Chat() {
       if (Array.isArray(content)) {
         const textPart = content.find((c: any) => c.type === 'text')
         if (textPart?.text) {
-          setStreamingText(textPart.text)
+          if (textPart.is_delta) {
+            // Delta: append to existing text
+            setDisplayedText(prev => prev + textPart.text)
+          } else {
+            // Full text: replace (for backward compatibility)
+            setDisplayedText(textPart.text)
+          }
         }
       } else if (typeof content === 'string') {
-        setStreamingText(content)
+        // Fallback: treat string as full text
+        setDisplayedText(content)
       }
       return
     }
 
     // Started — clear streaming text for new turn
     if (state === 'started') {
-      setStreamingText('')
+      setDisplayedText('')
       setAgentRunning(true)
       return
     }
@@ -484,26 +460,21 @@ export default function Chat() {
         setError(`Agent 执行出错: ${errMsg || '请检查当前模型是否可用'}`)
       }
 
-      // Don't clear streamingText yet — keep it visible until messages load
-
-      // Debounce: reset the completion timer on every "final"
+      // Load final messages immediately, no debounce
       if (sseFinalTimerRef.current) clearTimeout(sseFinalTimerRef.current)
-      sseFinalTimerRef.current = setTimeout(() => {
-        // No new "final" events for 3s — agent is truly done
-        getSession(currentKey).then(detail => {
-          setMessages(detail.messages || [])
-          setStreamingText('')
-          setSending(false)
-          setAgentRunning(false)
-          sseCompletedRef.current = true
-          fetchSessions()
-        }).catch(() => {
-          setStreamingText('')
-          setSending(false)
-          setAgentRunning(false)
-          sseCompletedRef.current = true
-        })
-      }, 3000)
+      getSession(currentKey).then(detail => {
+        setMessages(detail.messages || [])
+        setStreamingText('')
+        setSending(false)
+        setAgentRunning(false)
+        sseCompletedRef.current = true
+        fetchSessions()
+      }).catch(() => {
+        setStreamingText('')
+        setSending(false)
+        setAgentRunning(false)
+        sseCompletedRef.current = true
+      })
     }
   }, [fetchSessions])
 
@@ -534,26 +505,24 @@ export default function Chat() {
       console.log('[SSE] agent lifecycle event:', { phase })
       // Agent run ended — no more events expected, allow completion
       if (phase === 'end') {
-        // Use the same debounce pattern as chat final
+        // Load messages immediately, no debounce
         if (sseFinalTimerRef.current) clearTimeout(sseFinalTimerRef.current)
-        sseFinalTimerRef.current = setTimeout(() => {
-          const key = activeSessionKeyRef.current
-          if (key) {
-            getSession(key).then(detail => {
-              setMessages(detail.messages || [])
-              setStreamingText('')
-              setSending(false)
-              setAgentRunning(false)
-              sseCompletedRef.current = true
-              fetchSessions()
-            }).catch(() => {
-              setStreamingText('')
-              setSending(false)
-              setAgentRunning(false)
-              sseCompletedRef.current = true
-            })
-          }
-        }, 1000)
+        const key = activeSessionKeyRef.current
+        if (key) {
+          getSession(key).then(detail => {
+            setMessages(detail.messages || [])
+            setStreamingText('')
+            setSending(false)
+            setAgentRunning(false)
+            sseCompletedRef.current = true
+            fetchSessions()
+          }).catch(() => {
+            setStreamingText('')
+            setSending(false)
+            setAgentRunning(false)
+            sseCompletedRef.current = true
+          })
+        }
       }
     }
   }, [fetchSessions])
@@ -597,7 +566,6 @@ export default function Chat() {
     return () => {
       console.log('[SSE] 清理连接')
       if (sseFinalTimerRef.current) clearTimeout(sseFinalTimerRef.current)
-      if (typewriterTimerRef.current) clearInterval(typewriterTimerRef.current)
       sse.close()
       sseRef.current = null
     }
@@ -651,7 +619,7 @@ export default function Chat() {
         const detail = await getSession(key)
         const msgs = detail.messages || []
         const lastMsg = msgs[msgs.length - 1]
-        if (lastMsg?.role === 'assistant' && !targetTextRef.current) {
+        if (lastMsg?.role === 'assistant') {
           setMessages(msgs)
           setStreamingText('')
           sseCompletedRef.current = true

@@ -204,6 +204,10 @@ if [ -d /deploy-copy ]; then
           ['memory.backend', defaults.memory?.backend],
           ['memory.qmd.searchMode', defaults.memory?.qmd?.searchMode],
           ['agents.defaults.timeoutSeconds', defaults.agents?.defaults?.timeoutSeconds],
+          ['agents.defaults.subagents.maxSpawnDepth', defaults.agents?.defaults?.subagents?.maxSpawnDepth],
+          ['agents.defaults.subagents.maxChildrenPerAgent', defaults.agents?.defaults?.subagents?.maxChildrenPerAgent],
+          ['agents.defaults.subagents.maxConcurrent', defaults.agents?.defaults?.subagents?.maxConcurrent],
+          ['agents.defaults.subagents.runTimeoutSeconds', defaults.agents?.defaults?.subagents?.runTimeoutSeconds],
         ];
         let forceChanged = false;
         for (const [dotPath, value] of forceOverrides) {
@@ -222,6 +226,25 @@ if [ -d /deploy-copy ]; then
           }
         }
         if (forceChanged) {
+          fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        }
+
+        // Force-override agent model fields from defaults (by id)
+        const defaultAgentModels = {};
+        for (const da of (defaults.agents?.list || [])) {
+          if (da?.id && da?.model !== undefined) defaultAgentModels[da.id.toLowerCase()] = da.model;
+        }
+        let agentModelChanged = false;
+        for (const a of (config.agents?.list || [])) {
+          if (!a?.id) continue;
+          const defaultModel = defaultAgentModels[a.id.toLowerCase()];
+          if (defaultModel !== undefined && a.model !== defaultModel) {
+            console.log('[entrypoint]   Force override agent model: ' + a.id + ' = ' + defaultModel);
+            a.model = defaultModel;
+            agentModelChanged = true;
+          }
+        }
+        if (agentModelChanged) {
           fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
         }
       "
@@ -379,44 +402,36 @@ _register_memory_crons() {
     fi
   done
 
-  # 幂等：检查是否已经注册过
-  if [ -f "$OPENCLAW_STATE_DIR/.crons-registered" ]; then
-    echo "[entrypoint] crons already registered, skipping"
-    return
-  fi
+#  existing_crons=$(openclaw cron list 2>/dev/null || echo "")
 
-  existing_crons=$(openclaw cron list 2>/dev/null || echo "")
+#  if ! echo "$existing_crons" | grep -q "memory-sync"; then
+#    timeout 30 openclaw cron add \
+#      --name "memory-sync" \
+#      --cron "0 10,14,18,22 * * *" \
+#      --tz "Asia/Shanghai" \
+#      --session isolated \
+#      --wake now \
+#      --no-deliver \
+#      --message "You are a memory sync agent. Execute these steps NOW using tools. Do NOT just describe them. Step 1: Use the sessions tool to list all sessions from the last 4 hours. Step 2: For each non-isolated session with at least 2 user messages, use the sessions tool to get its history. Step 3: Use shell to get today's date (run: date +%Y-%m-%d), then read the file /root/.openclaw/memory/<TODAY>.md (create it if it does not exist). Step 4: For each session, check if its first 8 ID chars already appear in the file. If yes skip it. Step 5: Extract 3-10 key items (user requests, decisions, results) from each new session. Step 6: Append to the file under heading: ## HH:MM session:FIRST8CHARS | N messages. Step 7: Run shell command: /root/.openclaw/qmd-runner.sh update. Step 8: If no valid sessions found, do nothing." \
+#      2>/dev/null && echo "[entrypoint] memory-sync cron registered" || echo "[entrypoint] WARN: memory-sync cron failed"
+#  fi
 
-  if ! echo "$existing_crons" | grep -q "memory-sync"; then
-    timeout 30 openclaw cron add \
-      --name "memory-sync" \
-      --cron "0 10,14,18,22 * * *" \
-      --tz "Asia/Shanghai" \
-      --session isolated \
-      --wake now \
-      --no-deliver \
-      --message "You are a memory sync agent. Execute these steps NOW using tools. Do NOT just describe them. Step 1: Use the sessions tool to list all sessions from the last 4 hours. Step 2: For each non-isolated session with at least 2 user messages, use the sessions tool to get its history. Step 3: Read the file /root/.openclaw/memory/$(date +%Y-%m-%d).md (create it if it does not exist). Step 4: For each session, check if its first 8 ID chars already appear in the file. If yes skip it. Step 5: Extract 3-10 key items (user requests, decisions, results) from each new session. Step 6: Append to the file under heading: ## HH:MM session:FIRST8CHARS | N messages. Step 7: Run shell command: /root/.openclaw/qmd-runner.sh update. Step 8: If no valid sessions found, do nothing." \
-      2>/dev/null && echo "[entrypoint] memory-sync cron registered" || echo "[entrypoint] WARN: memory-sync cron failed"
-  fi
+#  if ! echo "$existing_crons" | grep -q "memory-tidy"; then
+#    timeout 30 openclaw cron add \
+#      --name "memory-tidy" \
+#      --cron "0 3 * * *" \
+#      --tz "Asia/Shanghai" \
+#      --session isolated \
+#      --wake now \
+#      --no-deliver \
+#      --message "You are a memory tidy agent. Execute these steps NOW using tools. Phase 1 - Weekly compression: Use shell to list /root/.openclaw/memory/*.md files older than 7 days. Group them by ISO week. For each week, read all daily files, extract key Decisions/Discoveries/Preferences/Tasks, and write a summary to /root/.openclaw/memory/weekly/YYYY-Www.md. Skip weeks that already have a weekly file. Phase 2 - Long-term distillation: Read the last 7 daily files and /root/.openclaw/memory/MEMORY.md. Identify facts that meet ALL criteria: agent would make errors without it, applies broadly, self-contained, not already in MEMORY.md. Back up MEMORY.md first, then append new entries. Hard limit 80 lines in MEMORY.md. Phase 3 - Archive: Move compressed daily files older than 14 days to /root/.openclaw/memory/archive/YYYY/. Finally run: /root/.openclaw/qmd-runner.sh update" \
+#      2>/dev/null && echo "[entrypoint] memory-tidy cron registered" || echo "[entrypoint] WARN: memory-tidy cron failed"
+#  fi
 
-  if ! echo "$existing_crons" | grep -q "memory-tidy"; then
-    timeout 30 openclaw cron add \
-      --name "memory-tidy" \
-      --cron "0 3 * * *" \
-      --tz "Asia/Shanghai" \
-      --session isolated \
-      --wake now \
-      --no-deliver \
-      --message "You are a memory tidy agent. Execute these steps NOW using tools. Phase 1 - Weekly compression: Use shell to list /root/.openclaw/memory/*.md files older than 7 days. Group them by ISO week. For each week, read all daily files, extract key Decisions/Discoveries/Preferences/Tasks, and write a summary to /root/.openclaw/memory/weekly/YYYY-Www.md. Skip weeks that already have a weekly file. Phase 2 - Long-term distillation: Read the last 7 daily files and /root/.openclaw/memory/MEMORY.md. Identify facts that meet ALL criteria: agent would make errors without it, applies broadly, self-contained, not already in MEMORY.md. Back up MEMORY.md first, then append new entries. Hard limit 80 lines in MEMORY.md. Phase 3 - Archive: Move compressed daily files older than 14 days to /root/.openclaw/memory/archive/YYYY/. Finally run: /root/.openclaw/qmd-runner.sh update" \
-      2>/dev/null && echo "[entrypoint] memory-tidy cron registered" || echo "[entrypoint] WARN: memory-tidy cron failed"
-  fi
-
-  # 标记 cron 已注册
-  touch "$OPENCLAW_STATE_DIR/.crons-registered"
 }
 
 # 异步执行，不阻塞主进程启动
-_register_memory_crons &
+#_register_memory_crons &
 
 echo "[entrypoint] Main startup sequence complete, background tasks running in parallel"
 

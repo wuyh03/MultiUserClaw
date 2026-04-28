@@ -57,7 +57,7 @@ async def _container_api_request(
     except httpx.ConnectError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OpenClaw container is starting up, please retry in a few seconds",
+            detail="服务首次使用正在初始化中，请等待几秒钟",
         ) from exc
     except httpx.HTTPError as exc:
         raise HTTPException(
@@ -493,7 +493,7 @@ async def proxy_http(
         except httpx.ConnectError:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="OpenClaw container is starting up, please retry in a few seconds",
+                detail="服务首次使用正在初始化中，请等待几秒钟",
             )
 
     return Response(

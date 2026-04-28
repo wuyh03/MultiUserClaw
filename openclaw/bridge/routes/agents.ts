@@ -180,6 +180,16 @@ export function agentsRoutes(client: BridgeGatewayClient): Router {
         } catch { /* ignore parse errors */ }
       }
 
+      // Only expose the system default model in platform-proxy to the frontend UI.
+      // Use the env var (fixed at container start) so users can always switch back.
+      if (configuredProviders["platform-proxy"]) {
+        const pp = configuredProviders["platform-proxy"] as Record<string, unknown>;
+        if (Array.isArray(pp.models) && pp.models.length > 0) {
+          const envModel = process.env.NANOBOT_AGENTS__DEFAULTS__MODEL || "";
+          pp.models = pp.models.filter((m: { id?: string }) => m.id === envModel);
+        }
+      }
+
       res.json({
         models: result?.models || [],
         configuredModel,

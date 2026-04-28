@@ -114,16 +114,34 @@ export function writeOpenclawConfig(cfg: BridgeConfig): void {
       if (!existing.models.providers) existing.models.providers = {};
       // Keep user's mode (e.g. "merge") — only default to "merge" if not set
       if (!existing.models.mode) existing.models.mode = "merge";
-      existing.models.providers["platform-proxy"] = openclawConfig.models.providers["platform-proxy"];
+      // Collect all model ids used by agents so they are all reachable via platform-proxy
+      const agentModelIds = new Set<string>([cfg.model]);
+      for (const agent of (existing.agents?.list || [])) {
+        if (agent.model && typeof agent.model === "string") {
+          const m = agent.model.startsWith("platform-proxy/")
+            ? agent.model.slice("platform-proxy/".length)
+            : agent.model;
+          agentModelIds.add(m);
+        }
+      }
+      existing.models.providers["platform-proxy"] = {
+        ...openclawConfig.models.providers["platform-proxy"],
+        models: Array.from(agentModelIds).map((id) => ({
+          id,
+          name: id,
+          input: cfg.modelInput,
+        })),
+      };
 
     // --- agents：将默认模型设置为 platform-proxy ---
-    // 保留用户已经通过 UI 选择的模型；仅当尚未配置模型时，
-    // 才写入从环境变量派生的默认值。
-    // 用户选择的模型会直接保存到 openclaw.json（而不是环境变量），
-    // 因此 loadConfig() 无法读取到这些值 —— 在这里始终进行写保护是安全的。
+    // 模型更新策略：
+    // - 未配置模型：写入平台默认值
+    // - 已配置 platform-proxy/ 开头的模型：说明是平台控制的，随 .env 更新
+    // - 已配置非 platform-proxy/ 的模型：用户自选的第三方模型，保留不覆盖
       if (!existing.agents) existing.agents = {};
       if (!existing.agents.defaults) existing.agents.defaults = {};
-      if (!existing.agents.defaults.model) {
+      const currentModel = existing.agents.defaults.model;
+      if (!currentModel || currentModel.startsWith("platform-proxy/")) {
         existing.agents.defaults.model = openclawConfig.agents.defaults.model;
       }
 
@@ -137,11 +155,16 @@ export function writeOpenclawConfig(cfg: BridgeConfig): void {
         }
       }
 
-      // --- agents.list: rewrite per-agent model overrides to use platform-proxy ---
+      // --- agents.list: ensure all agent models go through platform-proxy ---
+      // - No model: set to platform-proxy default
+      // - Has model without platform-proxy/ prefix: add the prefix so openclaw can resolve the provider
+      // - Already has platform-proxy/ prefix: leave untouched
       if (Array.isArray(existing.agents.list)) {
         for (const agent of existing.agents.list) {
-          if (agent.model && !agent.model.startsWith("platform-proxy/")) {
+          if (!agent.model) {
             agent.model = proxyModel;
+          } else if (typeof agent.model === "string" && !agent.model.startsWith("platform-proxy/")) {
+            agent.model = `platform-proxy/${agent.model}`;
           }
         }
       }

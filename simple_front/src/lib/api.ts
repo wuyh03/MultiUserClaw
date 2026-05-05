@@ -708,6 +708,29 @@ export async function createDirectory(path: string): Promise<void> {
   })
 }
 
+export async function writeManagedFile(path: string, content: string): Promise<FileEntry> {
+  try {
+    return await fetchJSON<FileEntry>('/api/openclaw/filemanager/write', {
+      method: 'PUT',
+      body: JSON.stringify({ path, content }),
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : ''
+    if (!message.includes('Cannot PUT /api/filemanager/write')) {
+      throw err
+    }
+
+    const normalizedPath = path.replace(/\\/g, '/')
+    const slashIndex = normalizedPath.lastIndexOf('/')
+    const fileName = slashIndex >= 0 ? normalizedPath.slice(slashIndex + 1) : normalizedPath
+    const targetDir = slashIndex >= 0 ? normalizedPath.slice(0, slashIndex) : ''
+    if (!fileName) throw err
+
+    const file = new File([content], fileName, { type: 'text/plain;charset=utf-8' })
+    return uploadFile(file, targetDir)
+  }
+}
+
 export async function downloadManagedFile(entry: FileEntry): Promise<void> {
   const token = getAccessToken()
   const res = await fetch(

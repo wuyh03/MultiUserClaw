@@ -12,6 +12,7 @@ import {
   FolderPlus,
   Loader2,
   RefreshCw,
+  Save,
   Trash2,
   Upload,
   X,
@@ -25,6 +26,7 @@ import {
   deleteFile,
   downloadManagedFile,
   uploadFile,
+  writeManagedFile,
 } from '../lib/api.ts'
 import type { BrowseDirectoryResult, BrowseFileResult, FileEntry } from '../lib/api.ts'
 import type { LayoutOutletContext } from '../components/Layout.tsx'
@@ -105,8 +107,10 @@ export default function KnowledgeBase() {
   const [deleting, setDeleting] = useState<string | null>(null)
   const [newFolderOpen, setNewFolderOpen] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
-  const [previewFile, setPreviewFile] = useState<{ name: string; content: string } | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
+  const [editorFile, setEditorFile] = useState<{ path: string; name: string; content: string; originalContent: string } | null>(null)
+  const [editorLoading, setEditorLoading] = useState(false)
+  const [editorSaving, setEditorSaving] = useState(false)
+  const [editorStatus, setEditorStatus] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const availableAgents = useMemo(
@@ -122,12 +126,15 @@ export default function KnowledgeBase() {
     setSelectedAgent((mainAgent || availableAgents[0]).id)
   }, [availableAgents, selectedAgent])
 
-  const loadDir = useCallback(async (agentId: string, nextSubPath: string) => {
+  const loadDir = useCallback(async (agentId: string, nextSubPath: string, options: { keepEditor?: boolean } = {}) => {
     if (!agentId) return
     const agent = availableAgents.find(item => item.id === agentId)
     setLoading(true)
     setError('')
-    setPreviewFile(null)
+    if (!options.keepEditor) {
+      setEditorFile(null)
+      setEditorStatus('')
+    }
     try {
       const result = await browseFiles(fullPath(agent, agentId, nextSubPath))
       if (result.type !== 'directory') throw new Error('目标不是文件夹')
@@ -157,6 +164,12 @@ export default function KnowledgeBase() {
     if (!selectedAgent) return
     void loadDir(selectedAgent, '')
   }, [loadDir, selectedAgent])
+
+  const closeEditor = () => {
+    setEditorFile(null)
+    setEditorLoading(false)
+    setEditorStatus('')
+  }
 
   const navigateTo = (nextSubPath: string) => {
     void loadDir(selectedAgent, nextSubPath)
@@ -212,25 +225,62 @@ export default function KnowledgeBase() {
     }
   }
 
-  const handlePreview = async (entry: FileEntry) => {
-    if (previewFile?.name === entry.name) {
-      setPreviewFile(null)
-      return
-    }
-    setPreviewLoading(true)
+  const handleEditFile = async (entry: FileEntry) => {
+    setEditorLoading(true)
+    setEditorStatus('')
     try {
       const result = await browseFiles(entry.path)
       const fileResult = result as BrowseFileResult
-      setPreviewFile({
+      if (fileResult.content === undefined) {
+        throw new Error('这个文件过大或暂不支持在线编辑')
+      }
+      const content = fileResult.content
+      setEditorFile({
+        path: entry.path,
         name: entry.name,
-        content: fileResult.content ?? '(这个文件暂不支持在线预览)',
+        content,
+        originalContent: content,
       })
-    } catch {
-      setPreviewFile({ name: entry.name, content: '(无法加载文件内容)' })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '无法加载文件内容')
     } finally {
-      setPreviewLoading(false)
+      setEditorLoading(false)
     }
   }
+
+  const handleSaveEditor = useCallback(async () => {
+    if (!editorFile || editorSaving) return
+    setEditorSaving(true)
+    setEditorStatus('')
+    setError('')
+    try {
+      await writeManagedFile(editorFile.path, editorFile.content)
+      setEditorFile(current => current ? { ...current, originalContent: current.content } : current)
+      setEditorStatus(`已保存 ${formatDate(new Date().toISOString())}`)
+      if (selectedAgent) await loadDir(selectedAgent, subPath, { keepEditor: true })
+    } catch (err) {
+      setEditorStatus('')
+      setError(err instanceof Error ? err.message : '保存失败')
+    } finally {
+      setEditorSaving(false)
+    }
+  }, [editorFile, editorSaving, loadDir, selectedAgent, subPath])
+
+  useEffect(() => {
+    if (!editorFile) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault()
+        void handleSaveEditor()
+      }
+      if (event.key === 'Escape') {
+        closeEditor()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [editorFile, handleSaveEditor])
 
   const handleDownload = async (entry: FileEntry) => {
     setError('')
@@ -240,6 +290,8 @@ export default function KnowledgeBase() {
       setError(err instanceof Error ? err.message : '下载失败')
     }
   }
+
+  const editorDirty = editorFile ? editorFile.content !== editorFile.originalContent : false
 
   return (
     <div className="h-full overflow-y-auto bg-light-bg">
@@ -443,7 +495,6 @@ export default function KnowledgeBase() {
               {data.items.map(entry => {
                 const isDir = entry.type === 'directory'
                 const isDeleting = deleting === entry.path
-                const isPreviewing = previewFile?.name === entry.name
                 const entrySubPath = subPath ? `${subPath}/${entry.name}` : entry.name
                 return (
                   <div key={entry.path}>
@@ -452,7 +503,7 @@ export default function KnowledgeBase() {
                         type="button"
                         onClick={() => {
                           if (isDir) navigateTo(entrySubPath)
-                          else if (isTextFile(entry)) void handlePreview(entry)
+                          else if (isTextFile(entry)) void handleEditFile(entry)
                         }}
                         className={`flex min-w-0 cursor-pointer items-center gap-3 text-left ${
                           isDir || isTextFile(entry) ? 'text-light-text hover:text-accent-blue' : 'text-light-text'
@@ -500,27 +551,6 @@ export default function KnowledgeBase() {
                         </Popconfirm>
                       </div>
                     </div>
-
-                    {isPreviewing && previewFile && (
-                      <div className="border-t border-light-border/80 bg-light-card-hover/50 px-4 py-4">
-                        <div className="mb-2 flex items-center justify-between gap-3">
-                          <span className="truncate text-sm font-medium text-light-text">{previewFile.name}</span>
-                          <IconButton label="关闭预览" onClick={() => setPreviewFile(null)} size="sm" surface="plain">
-                            <X size={15} />
-                          </IconButton>
-                        </div>
-                        {previewLoading ? (
-                          <div className="flex items-center gap-2 rounded-lg border border-light-border bg-light-card px-4 py-8 text-sm text-light-text-secondary">
-                            <Loader2 size={16} className="animate-spin text-accent-blue" />
-                            正在读取文件内容
-                          </div>
-                        ) : (
-                          <pre className="max-h-80 overflow-auto rounded-lg border border-light-border bg-light-card p-4 text-xs leading-6 text-light-text">
-                            {previewFile.content}
-                          </pre>
-                        )}
-                      </div>
-                    )}
                   </div>
                 )
               })}
@@ -540,6 +570,82 @@ export default function KnowledgeBase() {
           </div>
         </div>
       </div>
+
+      {(editorFile || editorLoading) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-3 py-4 sm:px-6 sm:py-6">
+          <button
+            type="button"
+            className="absolute inset-0 cursor-default bg-slate-950/55 backdrop-blur-[2px]"
+            aria-label="关闭文件编辑器"
+            onClick={closeEditor}
+          />
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="编辑知识库文件"
+            className="relative flex h-[min(88vh,900px)] w-full max-w-[min(1440px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-light-border bg-light-card shadow-2xl shadow-slate-950/25"
+          >
+            <header className="flex min-h-14 items-center justify-between gap-3 border-b border-light-border px-4 py-3">
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-semibold text-light-text">
+                  {editorFile?.name || '正在读取文件'}
+                </h2>
+                <p className="mt-0.5 truncate text-xs text-light-text-secondary">
+                  {editorFile?.path || '请稍候'}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {editorStatus && (
+                  <span className="hidden text-xs text-light-text-secondary sm:inline">
+                    {editorStatus}
+                  </span>
+                )}
+                {editorDirty && (
+                  <span className="rounded-full bg-accent-yellow/10 px-2 py-1 text-xs font-medium text-amber-700">
+                    未保存
+                  </span>
+                )}
+                <button
+                  type="button"
+                  disabled={!editorFile || editorSaving}
+                  onClick={() => void handleSaveEditor()}
+                  className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-accent-blue px-4 py-2 text-sm font-medium text-white shadow-sm shadow-cyan-900/10 transition-colors hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {editorSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                  保存
+                </button>
+                <IconButton label="关闭编辑器" onClick={closeEditor} className="border border-light-border">
+                  <X size={17} />
+                </IconButton>
+              </div>
+            </header>
+
+            {editorLoading ? (
+              <div className="flex flex-1 items-center justify-center gap-2 text-sm text-light-text-secondary">
+                <Loader2 size={18} className="animate-spin text-accent-blue" />
+                正在读取文件内容
+              </div>
+            ) : (
+              <textarea
+                value={editorFile?.content || ''}
+                onChange={event => {
+                  const value = event.target.value
+                  setEditorFile(current => current ? { ...current, content: value } : current)
+                  setEditorStatus('')
+                }}
+                spellCheck={false}
+                autoFocus
+                className="min-h-0 flex-1 resize-none border-0 bg-light-card px-4 py-4 font-mono text-sm leading-6 text-light-text outline-none placeholder:text-light-text-secondary"
+              />
+            )}
+
+            <footer className="flex min-h-10 items-center justify-between gap-3 border-t border-light-border px-4 py-2 text-xs text-light-text-secondary">
+              <span className="truncate">Ctrl+S 保存到 workspace 对应文件</span>
+              {editorStatus && <span className="truncate sm:hidden">{editorStatus}</span>}
+            </footer>
+          </section>
+        </div>
+      )}
     </div>
   )
 }

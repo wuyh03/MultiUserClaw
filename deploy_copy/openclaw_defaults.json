@@ -14,6 +14,16 @@
         "maxChildrenPerAgent": 5,
         "maxConcurrent": 3,
         "runTimeoutSeconds": 1800
+      },
+      "memorySearch": {
+        "enabled": true,
+        "sources": ["memory"],
+        "extraPaths": ["knowledge"],
+        "sync": {
+          "onSearch": true,
+          "watch": true,
+          "watchDebounceMs": 1500
+        }
       }
     },
     "list": [
@@ -137,8 +147,14 @@
 
   "plugins": {
     "enabled": true,
-    "allow": ["searxng"],
+    "allow": ["searxng", "memory-core"],
+    "slots": {
+      "memory": "memory-core"
+    },
     "entries": {
+      "memory-core": {
+        "enabled": true
+      },
       "searxng": {
         "enabled": true,
         "config": {

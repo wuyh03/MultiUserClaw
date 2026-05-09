@@ -18,10 +18,16 @@ import ApiAccess from './pages/ApiAccess'
 import Nodes from './pages/Nodes'
 import Plugins from './pages/Plugins'
 import TerminalPage from './pages/Terminal'
-import { isLoggedIn } from './lib/api'
+import { isLoggedIn, getUserRoleFromToken } from './lib/api'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   if (!isLoggedIn()) return <Navigate to="/login" replace />
+  return <>{children}</>
+}
+
+function RequireAdmin({ children }: { children: React.ReactNode }) {
+  if (!isLoggedIn()) return <Navigate to="/login" replace />
+  if (getUserRoleFromToken() !== 'admin') return <Navigate to="/dashboard" replace />
   return <>{children}</>
 }
 
@@ -37,15 +43,15 @@ export default function App() {
         <Route path="agents/:id" element={<AgentDetail />} />
         <Route path="chat" element={<Chat />} />
         <Route path="skills" element={<SkillStore />} />
-        <Route path="channels" element={<Channels />} />
-        <Route path="plugins" element={<Plugins />} />
+        <Route path="channels" element={<RequireAdmin><Channels /></RequireAdmin>} />
+        <Route path="plugins" element={<RequireAdmin><Plugins /></RequireAdmin>} />
         <Route path="models" element={<AIModels />} />
         <Route path="files" element={<FileManager />} />
         <Route path="knowledge" element={<KnowledgeBase />} />
         <Route path="terminal" element={<TerminalPage />} />
         <Route path="sessions" element={<Sessions />} />
         <Route path="cron" element={<CronJobs />} />
-        <Route path="nodes" element={<Nodes />} />
+        <Route path="nodes" element={<RequireAdmin><Nodes /></RequireAdmin>} />
         <Route path="api" element={<ApiAccess />} />
         <Route path="settings" element={<SystemSettings />} />
       </Route>

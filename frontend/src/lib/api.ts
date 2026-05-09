@@ -17,6 +17,7 @@ export interface AuthUser {
   id: string
   username: string
   email: string
+  role: string
   created_at: string
 }
 
@@ -135,6 +136,21 @@ function clearTokens(): void {
 
 export function isLoggedIn(): boolean {
   return getAccessToken() !== null
+}
+
+export function getUserRoleFromToken(): string | null {
+  const token = getAccessToken()
+  if (!token) return null
+  try {
+    const payloadBase64 = token.split('.')[1]
+    if (!payloadBase64) return null
+    let base64 = payloadBase64.replace(/-/g, '+').replace(/_/g, '/')
+    while (base64.length % 4) base64 += '='
+    const payload = JSON.parse(atob(base64))
+    return payload.role ?? null
+  } catch {
+    return null
+  }
 }
 
 // ---------------------------------------------------------------------------

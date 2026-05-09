@@ -44,8 +44,8 @@ const navSections = [
     label: '技能中心',
     items: [
       { to: '/skills', icon: Zap, label: '技能商店' },
-      { to: '/channels', icon: Radio, label: '渠道管理' },
-      { to: '/plugins', icon: Puzzle, label: '插件管理' },
+      { to: '/channels', icon: Radio, label: '渠道管理', roles: ['admin'] },
+      { to: '/plugins', icon: Puzzle, label: '插件管理', roles: ['admin'] },
       { to: '/models', icon: Brain, label: 'AI 模型' },
       { to: '/files', icon: FolderOpen, label: '文件管理' },
       { to: '/knowledge', icon: BookOpen, label: '知识库' },
@@ -57,7 +57,7 @@ const navSections = [
       { to: '/terminal', icon: Monitor, label: '实时终端' },
       { to: '/sessions', icon: MessageSquare, label: '会话历史' },
       { to: '/cron', icon: Clock, label: '定时任务' },
-      { to: '/nodes', icon: Monitor, label: 'Node 管理' },
+      { to: '/nodes', icon: Monitor, label: 'Node 管理', roles: ['admin'] },
       { to: '/api', icon: Code2, label: 'API设定' },
       { to: '/settings', icon: Settings, label: '系统设置' },
     ],
@@ -139,6 +139,9 @@ export default function Sidebar() {
               {section.label}
             </div>
             {section.items.map(item => {
+              if ('roles' in item && item.roles && !item.roles.includes(user?.role ?? '')) {
+                return null
+              }
               const Icon = item.icon
               const isActive = location.pathname === item.to ||
                 (item.to !== '/dashboard' && location.pathname.startsWith(item.to))

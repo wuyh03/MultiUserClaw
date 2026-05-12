@@ -1,15 +1,13 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertCircle, ArrowRight, Bot, Loader2, LockKeyhole, Mail, User, Workflow } from 'lucide-react'
-import { login, register } from '../lib/api.ts'
+import { AlertCircle, ArrowRight, Bot, Loader2, LockKeyhole, User, Workflow } from 'lucide-react'
+import { login } from '../lib/api.ts'
 import ClearableInput from '../components/ui/ClearableInput.tsx'
 
 export default function Login() {
   const navigate = useNavigate()
   const loginShellRef = useRef<HTMLDivElement>(null)
-  const [mode, setMode] = useState<'login' | 'register'>('login')
   const [username, setUsername] = useState('')
-  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -17,17 +15,12 @@ export default function Login() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!username.trim() || !password) return
-    if (mode === 'register' && !email.trim()) return
-    
+
     setError('')
     setLoading(true)
 
     try {
-      if (mode === 'login') {
-        await login(username.trim(), password)
-      } else {
-        await register(username.trim(), email.trim(), password)
-      }
+      await login(username.trim(), password)
       navigate('/')
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '操作失败')
@@ -86,12 +79,10 @@ export default function Login() {
                 <Bot size={22} />
               </div>
               <h1 className="text-3xl font-medium tracking-normal text-light-text">
-                {mode === 'login' ? '欢迎回来' : '创建 OpenClaw 账号'}
+                欢迎回来
               </h1>
               <p className="mt-3 text-sm leading-6 text-light-text-secondary">
-                {mode === 'login'
-                  ? '登录后继续你的 Agent 会话和默认对话。'
-                  : '创建账号后即可开始组织你的 Agent 工作流。'}
+                登录后继续你的 Agent 会话和默认对话。
               </p>
             </div>
 
@@ -124,28 +115,6 @@ export default function Login() {
                   </div>
                 </div>
 
-                {mode === 'register' && (
-                  <div className="animate-fade-in">
-                    <label htmlFor="auth-email" className="mb-1.5 block text-xs font-medium text-light-text-secondary">
-                      邮箱
-                    </label>
-                    <div className="flex items-center gap-2 rounded-2xl border border-light-border bg-white px-3 transition-colors focus-within:border-accent-blue">
-                      <Mail size={16} className="shrink-0 text-light-text-secondary" />
-                      <ClearableInput
-                        id="auth-email"
-                        type="email"
-                        value={email}
-                        onValueChange={setEmail}
-                        required
-                        autoComplete="email"
-                        className="min-h-11 w-full bg-transparent text-sm text-light-text outline-none placeholder:text-slate-400"
-                        placeholder="输入邮箱"
-                        clearLabel="清空邮箱"
-                      />
-                    </div>
-                  </div>
-                )}
-
                 <div>
                   <label htmlFor="auth-password" className="mb-1.5 block text-xs font-medium text-light-text-secondary">
                     密码
@@ -158,7 +127,7 @@ export default function Login() {
                       value={password}
                       onValueChange={setPassword}
                       required
-                      autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                      autoComplete="current-password"
                       className="min-h-11 w-full bg-transparent text-sm text-light-text outline-none placeholder:text-slate-400"
                       placeholder="输入密码"
                       clearLabel="清空密码"
@@ -168,48 +137,22 @@ export default function Login() {
 
                 <button
                   type="submit"
-                  disabled={loading || !username.trim() || !password || (mode === 'register' && !email.trim())}
+                  disabled={loading || !username.trim() || !password}
                   className="mt-1 flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
                   {loading ? (
                     <>
                       <Loader2 size={16} className="animate-spin" />
-                      {mode === 'login' ? '登录中' : '注册中'}
+                      登录中
                     </>
                   ) : (
                     <>
-                      {mode === 'login' ? '登录' : '注册'}
+                      登录
                       <ArrowRight size={16} />
                     </>
                   )}
                 </button>
               </form>
-
-              <div className="mt-5 border-t border-light-border pt-4 text-center text-sm text-light-text-secondary">
-                {mode === 'login' ? (
-                  <>
-                    还没有账号？{' '}
-                    <button
-                      type="button"
-                      onClick={() => { setMode('register'); setError('') }}
-                      className="cursor-pointer font-medium text-accent-blue transition-colors hover:text-cyan-700"
-                    >
-                      创建账号
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    已有账号？{' '}
-                    <button
-                      type="button"
-                      onClick={() => { setMode('login'); setError('') }}
-                      className="cursor-pointer font-medium text-accent-blue transition-colors hover:text-cyan-700"
-                    >
-                      返回登录
-                    </button>
-                  </>
-                )}
-              </div>
             </div>
 
             <p className="mt-5 text-center text-xs leading-5 text-light-text-secondary">

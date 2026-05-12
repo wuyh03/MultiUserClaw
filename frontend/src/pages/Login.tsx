@@ -1,13 +1,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Bot, Loader2 } from 'lucide-react'
-import { login, register } from '../lib/api'
+import { login } from '../lib/api'
 
 export default function Login() {
   const navigate = useNavigate()
-  const [mode, setMode] = useState<'login' | 'register'>('login')
   const [username, setUsername] = useState('')
-  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -18,11 +16,7 @@ export default function Login() {
     setLoading(true)
 
     try {
-      if (mode === 'login') {
-        await login(username, password)
-      } else {
-        await register(username, email, password)
-      }
+      await login(username, password)
       navigate('/dashboard')
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'An unexpected error occurred')
@@ -54,26 +48,13 @@ export default function Login() {
           <div>
             <input
               type="text"
-              placeholder={mode === 'login' ? '用户名或邮箱' : '用户名'}
+              placeholder="用户名或邮箱"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required
               className="w-full rounded-lg border border-dark-border bg-dark-bg px-4 py-2.5 text-sm text-dark-text outline-none focus:border-accent-blue"
             />
           </div>
-
-          {mode === 'register' && (
-            <div>
-              <input
-                type="email"
-                placeholder="邮箱"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="w-full rounded-lg border border-dark-border bg-dark-bg px-4 py-2.5 text-sm text-dark-text outline-none focus:border-accent-blue"
-              />
-            </div>
-          )}
 
           <div>
             <input
@@ -93,40 +74,11 @@ export default function Login() {
           >
             {loading ? (
               <Loader2 className="mx-auto h-5 w-5 animate-spin" />
-            ) : mode === 'login' ? (
-              '登录'
             ) : (
-              '注册'
+              '登录'
             )}
           </button>
         </form>
-
-        {/* Toggle */}
-        <p className="mt-6 text-center text-sm text-dark-muted">
-          {mode === 'login' ? (
-            <>
-              还没有账号？{' '}
-              <button
-                type="button"
-                onClick={() => { setMode('register'); setError('') }}
-                className="text-accent-blue hover:underline"
-              >
-                注册
-              </button>
-            </>
-          ) : (
-            <>
-              已有账号？{' '}
-              <button
-                type="button"
-                onClick={() => { setMode('login'); setError('') }}
-                className="text-accent-blue hover:underline"
-              >
-                登录
-              </button>
-            </>
-          )}
-        </p>
       </div>
     </div>
   )

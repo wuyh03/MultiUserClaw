@@ -20,6 +20,7 @@ from app.auth.service import (
 )
 from app.audit import write_audit_log
 from app.auth.dependencies import get_current_user
+from app.config import settings
 from app.db.engine import get_db
 from app.db.models import User
 
@@ -71,6 +72,9 @@ class UserResponse(BaseModel):
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    if not settings.allow_registration:
+        raise HTTPException(status_code=403, detail="自助注册已关闭，请联系管理员")
+
     if await get_user_by_username(db, req.username):
         raise HTTPException(status_code=400, detail="账号已存在")
     if await get_user_by_email(db, req.email):

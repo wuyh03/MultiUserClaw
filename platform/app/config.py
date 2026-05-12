@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     quota_basic: int = 1_000_000
     quota_pro: int = 10_000_000
 
+    # Registration
+    allow_registration: bool = False
+
     # Admin account (auto-created on first startup)
     admin_username: str = ""
     admin_password: str = ""

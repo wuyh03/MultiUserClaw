@@ -39,6 +39,9 @@ services:
       PLATFORM_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nanobot}:${POSTGRES_PASSWORD:-nanobot}@postgres:5432/${POSTGRES_DB:-nanobot_platform}
       PLATFORM_JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
 
+      # 是否允许自助注册（默认关闭，由管理员手工建用户）
+      PLATFORM_ALLOW_REGISTRATION: ${PLATFORM_ALLOW_REGISTRATION:-false}
+
       # 启动时自动创建管理员账号
       PLATFORM_ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       PLATFORM_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}

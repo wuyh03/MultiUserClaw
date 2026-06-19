@@ -1,0 +1,170 @@
+# OpenClaw Multi-Tenant Deployment
+#
+# Architecture:
+#   frontend (public:3000) → gateway (internal+external) → per-user containers (internal only)
+#                                  ↕
+#                            postgres (internal)
+#
+# User containers are created dynamically by the gateway via Docker API,
+# NOT defined in this compose file.
+
+name: openclaw
+
+services:
+  postgres:
+    container_name: openclaw-postgres
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nanobot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nanobot}
+      POSTGRES_DB: ${POSTGRES_DB:-nanobot_platform}
+    ports:
+      - "15432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - openclaw-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nanobot} -d ${POSTGRES_DB:-nanobot_platform}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  gateway:
+    container_name: openclaw-gateway
+    build: ./platform
+    ports:
+      - "8080:8080"
+    environment:
+      PLATFORM_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nanobot}:${POSTGRES_PASSWORD:-nanobot}@postgres:5432/${POSTGRES_DB:-nanobot_platform}
+      PLATFORM_JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+
+      # 是否允许自助注册（默认关闭，由管理员手工建用户）
+      PLATFORM_ALLOW_REGISTRATION: ${PLATFORM_ALLOW_REGISTRATION:-false}
+
+      # 启动时自动创建管理员账号
+      PLATFORM_ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      PLATFORM_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+
+      # LLM API Keys — ONLY here, never in user containers
+      PLATFORM_ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      PLATFORM_OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      PLATFORM_OPENAI_API_BASE: ${OPENAI_API_BASE:-}
+      PLATFORM_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      PLATFORM_OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      PLATFORM_DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      PLATFORM_MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+      PLATFORM_MINIMAX_API_BASE: ${MINIMAX_API_BASE:-}
+      PLATFORM_AIHUBMIX_API_KEY: ${AIHUBMIX_API_KEY:-}
+      PLATFORM_MOONSHOT_API_KEY: ${MOONSHOT_API_KEY:-}
+      PLATFORM_KIMI_API_KEY: ${KIMI_API_KEY:-}
+      PLATFORM_ZHIPU_API_KEY: ${ZHIPU_API_KEY:-}
+      PLATFORM_DOUBAO_API_KEY: ${DOUBAO_API_KEY:-}
+
+      # Self-hosted vLLM
+      PLATFORM_HOSTED_VLLM_API_KEY: ${HOSTED_VLLM_API_KEY:-}
+      PLATFORM_HOSTED_VLLM_API_BASE: ${HOSTED_VLLM_API_BASE:-}
+
+      PLATFORM_DEFAULT_MODEL: ${DEFAULT_MODEL:-dashscope/qwen3-coder-plus}
+      PLATFORM_OPENCLAW_IMAGE: openclaw:latest
+      PLATFORM_DEPLOY_VERSION: ${DEPLOY_VERSION:-}
+      PLATFORM_CONTAINER_NETWORK: openclaw-internal
+      PLATFORM_SHARED_OPENCLAW_ENABLED: ${PLATFORM_SHARED_OPENCLAW_ENABLED:-true}
+      PLATFORM_SHARED_OPENCLAW_URL: ${PLATFORM_SHARED_OPENCLAW_URL:-http://shared-openclaw:18080}
+      PLATFORM_SHARED_OPENCLAW_SYSTEM_TOKEN: ${PLATFORM_SHARED_OPENCLAW_SYSTEM_TOKEN:-shared-openclaw-system-token}
+      PLATFORM_CONTAINER_TZ: ${CONTAINER_TZ:-Asia/Shanghai}
+      PLATFORM_CONTAINER_MEMORY_LIMIT: ${PLATFORM_CONTAINER_MEMORY_LIMIT:-2g}
+      PLATFORM_CONTAINER_SHM_SIZE: ${PLATFORM_CONTAINER_SHM_SIZE:-1g}
+      PLATFORM_CONTAINER_DATA_DIR: /data/openclaw-users
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # Docker API access for container management
+      - userdata:/data/openclaw-users
+    networks:
+      - openclaw-internal   # talk to postgres + user containers
+      - openclaw-external   # accept traffic from frontend / public
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    container_name: openclaw-frontend
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
+    ports:
+      - "3080:3000"
+    networks:
+      - openclaw-external
+    depends_on:
+      - gateway
+
+  shared-openclaw:
+    container_name: openclaw-shared
+    image: openclaw:latest
+    command: ["node", "bridge/dist/bridge/start.js"]
+    environment:
+      NANOBOT_PROXY__URL: http://gateway:8080/llm/v1
+      NANOBOT_PROXY__TOKEN: ${PLATFORM_SHARED_OPENCLAW_SYSTEM_TOKEN:-shared-openclaw-system-token}
+      NANOBOT_AGENTS__DEFAULTS__MODEL: ${DEFAULT_MODEL:-dashscope/qwen3-coder-plus}
+      DEPLOY_VERSION: ${DEPLOY_VERSION:-}
+      TZ: ${CONTAINER_TZ:-Asia/Shanghai}
+      BRIDGE_ENABLE_CHANNELS: "0"
+    volumes:
+      - shared_openclaw_data:/root/.openclaw
+    networks:
+      - openclaw-internal
+    depends_on:
+      - gateway
+
+  manage-front:
+    container_name: openclaw-manage
+    build: ./manage_front
+    ports:
+      - "3081:3000"
+    environment:
+      - API_URL=http://gateway:8080
+    networks:
+      - openclaw-external
+    depends_on:
+      - gateway
+
+  simple-front:
+    container_name: openclaw-simple
+    build:
+      context: ./simple_front
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
+    ports:
+      - "3082:3000"
+    networks:
+      - openclaw-external
+    depends_on:
+      - gateway
+
+  share-openclaw-front:
+    container_name: openclaw-share-front
+    build:
+      context: ./share_openclaw_front
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
+    ports:
+      - "3083:3000"
+    networks:
+      - openclaw-external
+    depends_on:
+      - gateway
+
+networks:
+  openclaw-internal:
+    name: openclaw-internal    # explicit name — prevents Compose project-name prefix
+    driver: bridge
+    internal: false  # allow internet access for user containers to download tools
+  openclaw-external:
+    name: openclaw-external
+    driver: bridge
+
+volumes:
+  pgdata:
+  userdata:
+  shared_openclaw_data:

@@ -1,7 +1,7 @@
-# OpenClaw Multi-Tenant Deployment
+# OpenClaw Multi-Tenant Deployment (使用预构建镜像)
 #
 # Architecture:
-#   frontend (public:3000) → gateway (internal+external) → per-user containers (internal only)
+#   frontend (public:3000) -> gateway (internal+external) -> per-user containers (internal only)
 #                                  ↕
 #                            postgres (internal)
 #
@@ -32,7 +32,7 @@ services:
 
   gateway:
     container_name: openclaw-gateway
-    build: ./platform
+    image: openclaw-gateway:latest
     ports:
       - "8080:8080"
     environment:
@@ -88,10 +88,7 @@ services:
 
   frontend:
     container_name: openclaw-frontend
-    build:
-      context: ./frontend
-      args:
-        VITE_API_URL: ${VITE_API_URL:-}
+    image: openclaw-frontend:latest
     ports:
       - "3080:3000"
     networks:
@@ -112,6 +109,8 @@ services:
       BRIDGE_ENABLE_CHANNELS: "0"
     volumes:
       - shared_openclaw_data:/root/.openclaw
+    profiles:
+      - "debug"
     networks:
       - openclaw-internal
     depends_on:
@@ -119,7 +118,7 @@ services:
 
   manage-front:
     container_name: openclaw-manage
-    build: ./manage_front
+    image: openclaw-manage-front:latest
     ports:
       - "3081:3000"
     environment:
@@ -131,12 +130,11 @@ services:
 
   simple-front:
     container_name: openclaw-simple
-    build:
-      context: ./simple_front
-      args:
-        VITE_API_URL: ${VITE_API_URL:-}
+    image: openclaw-simple-front:latest
     ports:
       - "3082:3000"
+    profiles:
+      - "debug"
     networks:
       - openclaw-external
     depends_on:
@@ -144,12 +142,11 @@ services:
 
   share-openclaw-front:
     container_name: openclaw-share-front
-    build:
-      context: ./share_openclaw_front
-      args:
-        VITE_API_URL: ${VITE_API_URL:-}
+    image: openclaw-share-openclaw-front:latest
     ports:
       - "3083:3000"
+    profiles:
+      - "debug"
     networks:
       - openclaw-external
     depends_on:
